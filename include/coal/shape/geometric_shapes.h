@@ -41,7 +41,6 @@
 #include <vector>
 #include <memory>
 
-#include <boost/math/constants/constants.hpp>
 
 #include "coal/collision_object.h"
 #include "coal/data_types.h"
@@ -264,7 +263,7 @@ class COAL_DLLAPI Sphere : public ShapeBase {
   }
 
   CoalScalar computeVolume() const {
-    return 4 * boost::math::constants::pi<CoalScalar>() * radius * radius *
+    return 4 * CoalScalar(EIGEN_PI) * radius * radius *
            radius / 3;
   }
 
@@ -338,7 +337,7 @@ class COAL_DLLAPI Ellipsoid : public ShapeBase {
   }
 
   CoalScalar computeVolume() const {
-    return 4 * boost::math::constants::pi<CoalScalar>() * radii[0] * radii[1] *
+    return 4 * CoalScalar(EIGEN_PI) * radii[0] * radii[1] *
            radii[2] / 3;
   }
 
@@ -408,15 +407,15 @@ class COAL_DLLAPI Capsule : public ShapeBase {
   NODE_TYPE getNodeType() const { return GEOM_CAPSULE; }
 
   CoalScalar computeVolume() const {
-    return boost::math::constants::pi<CoalScalar>() * radius * radius *
+    return CoalScalar(EIGEN_PI) * radius * radius *
            ((halfLength * 2) + radius * 4 / 3.0);
   }
 
   Matrix3s computeMomentofInertia() const {
     CoalScalar v_cyl = radius * radius * (halfLength * 2) *
-                       boost::math::constants::pi<CoalScalar>();
+                       CoalScalar(EIGEN_PI);
     CoalScalar v_sph = radius * radius * radius *
-                       boost::math::constants::pi<CoalScalar>() * 4 / 3.0;
+                       CoalScalar(EIGEN_PI) * 4 / 3.0;
 
     CoalScalar h2 = halfLength * halfLength;
     CoalScalar r2 = radius * radius;
@@ -492,7 +491,7 @@ class COAL_DLLAPI Cone : public ShapeBase {
   NODE_TYPE getNodeType() const { return GEOM_CONE; }
 
   CoalScalar computeVolume() const {
-    return boost::math::constants::pi<CoalScalar>() * radius * radius *
+    return CoalScalar(EIGEN_PI) * radius * radius *
            (halfLength * 2) / 3;
   }
 
@@ -593,7 +592,7 @@ class COAL_DLLAPI Cylinder : public ShapeBase {
   NODE_TYPE getNodeType() const { return GEOM_CYLINDER; }
 
   CoalScalar computeVolume() const {
-    return boost::math::constants::pi<CoalScalar>() * radius * radius *
+    return CoalScalar(EIGEN_PI) * radius * radius *
            (halfLength * 2);
   }
 

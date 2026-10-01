@@ -40,7 +40,6 @@
 
 #include "coal/data_types.h"
 
-#include <boost/math/constants/constants.hpp>
 
 namespace coal {
 
@@ -136,7 +135,7 @@ struct COAL_DLLAPI RSS {
   /// @brief Volume of the RSS
   inline CoalScalar volume() const {
     return (length[0] * length[1] * 2 * radius +
-            4 * boost::math::constants::pi<CoalScalar>() * radius * radius *
+            4 * CoalScalar(EIGEN_PI) * radius * radius *
                 radius);
   }
 
