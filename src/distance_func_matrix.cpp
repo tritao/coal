@@ -171,33 +171,46 @@ struct COAL_LOCAL BVHShapeDistancer<OBBRSS, T_SH> {
 };
 
 template <typename T_HF, typename T_SH>
-struct COAL_LOCAL HeightFieldShapeDistancer{static CoalScalar distance(
-    const CollisionGeometry* o1, const Transform3s& tf1,
-    const CollisionGeometry* o2, const Transform3s& tf2,
-    const GJKSolver* nsolver, const DistanceRequest& request,
-    DistanceResult& result){COAL_UNUSED_VARIABLE(o1);
-COAL_UNUSED_VARIABLE(tf1);
-COAL_UNUSED_VARIABLE(o2);
-COAL_UNUSED_VARIABLE(tf2);
-COAL_UNUSED_VARIABLE(nsolver);
-COAL_UNUSED_VARIABLE(request);
-// TODO(jcarpent)
-COAL_THROW_PRETTY(
-    "Distance between a height field and a shape is not implemented",
-    std::invalid_argument);
-//    if(request.isSatisfied(result)) return result.min_distance;
-//    HeightFieldShapeDistanceTraversalNode<T_HF, T_SH> node;
-//
-//    const HeightField<T_HF>* obj1 = static_cast<const HeightField<T_HF>*
-//    >(o1); const T_SH* obj2 = static_cast<const T_SH*>(o2);
-//
-//    initialize(node, *obj1, tf1, *obj2, tf2, nsolver, request, result);
-//    fcl::distance(&node);
+struct COAL_LOCAL HeightFieldShapeDistancer {
+  static CoalScalar distance(const CollisionGeometry* o1,
+                             const Transform3s& tf1,
+                             const CollisionGeometry* o2,
+                             const Transform3s& tf2, const GJKSolver* nsolver,
+                             const DistanceRequest& request,
+                             DistanceResult& result) {
+    if (request.isSatisfied(result)) return result.min_distance;
+    HeightFieldShapeDistanceTraversalNode<T_HF, T_SH, 0> node;
 
-return result.min_distance;
-}
-}
-;
+    const HeightField<T_HF>* obj1 = static_cast<const HeightField<T_HF>*>(o1);
+    const T_SH* obj2 = static_cast<const T_SH*>(o2);
+
+    initialize(node, *obj1, tf1, *obj2, tf2, nsolver, request, result);
+    ::coal::distance(&node);
+
+    return result.min_distance;
+  }
+};
+
+/// @brief A mesh against a height field: the height field's distancer with
+/// the objects swapped back.
+template <typename T_BVH, typename T_HF>
+struct COAL_LOCAL BVHHeightFieldDistancer {
+  static CoalScalar distance(const CollisionGeometry* o1,
+                             const Transform3s& tf1,
+                             const CollisionGeometry* o2,
+                             const Transform3s& tf2, const GJKSolver* nsolver,
+                             const DistanceRequest& request,
+                             DistanceResult& result) {
+    const CoalScalar distance =
+        HeightFieldShapeDistancer<T_HF, BVHModel<T_BVH> >::distance(
+            o2, tf2, o1, tf1, nsolver, request, result);
+    std::swap(result.o1, result.o2);
+    std::swap(result.b1, result.b2);
+    result.nearest_points[0].swap(result.nearest_points[1]);
+    result.normal = -result.normal;
+    return distance;
+  }
+};
 
 template <typename T_BVH>
 CoalScalar BVHDistance(const CollisionGeometry* o1, const Transform3s& tf1,
@@ -599,6 +612,47 @@ DistanceFunctionMatrix::DistanceFunctionMatrix() {
       &HeightFieldShapeDistancer<OBBRSS, Halfspace>::distance;
   distance_matrix[HF_OBBRSS][GEOM_ELLIPSOID] =
       &HeightFieldShapeDistancer<OBBRSS, Ellipsoid>::distance;
+
+  distance_matrix[HF_AABB][BV_AABB] =
+      &HeightFieldShapeDistancer<AABB, BVHModel<AABB> >::distance;
+  distance_matrix[BV_AABB][HF_AABB] =
+      &BVHHeightFieldDistancer<AABB, AABB>::distance;
+  distance_matrix[HF_AABB][BV_OBB] =
+      &HeightFieldShapeDistancer<AABB, BVHModel<OBB> >::distance;
+  distance_matrix[BV_OBB][HF_AABB] =
+      &BVHHeightFieldDistancer<OBB, AABB>::distance;
+  distance_matrix[HF_AABB][BV_RSS] =
+      &HeightFieldShapeDistancer<AABB, BVHModel<RSS> >::distance;
+  distance_matrix[BV_RSS][HF_AABB] =
+      &BVHHeightFieldDistancer<RSS, AABB>::distance;
+  distance_matrix[HF_AABB][BV_kIOS] =
+      &HeightFieldShapeDistancer<AABB, BVHModel<kIOS> >::distance;
+  distance_matrix[BV_kIOS][HF_AABB] =
+      &BVHHeightFieldDistancer<kIOS, AABB>::distance;
+  distance_matrix[HF_AABB][BV_OBBRSS] =
+      &HeightFieldShapeDistancer<AABB, BVHModel<OBBRSS> >::distance;
+  distance_matrix[BV_OBBRSS][HF_AABB] =
+      &BVHHeightFieldDistancer<OBBRSS, AABB>::distance;
+  distance_matrix[HF_OBBRSS][BV_AABB] =
+      &HeightFieldShapeDistancer<OBBRSS, BVHModel<AABB> >::distance;
+  distance_matrix[BV_AABB][HF_OBBRSS] =
+      &BVHHeightFieldDistancer<AABB, OBBRSS>::distance;
+  distance_matrix[HF_OBBRSS][BV_OBB] =
+      &HeightFieldShapeDistancer<OBBRSS, BVHModel<OBB> >::distance;
+  distance_matrix[BV_OBB][HF_OBBRSS] =
+      &BVHHeightFieldDistancer<OBB, OBBRSS>::distance;
+  distance_matrix[HF_OBBRSS][BV_RSS] =
+      &HeightFieldShapeDistancer<OBBRSS, BVHModel<RSS> >::distance;
+  distance_matrix[BV_RSS][HF_OBBRSS] =
+      &BVHHeightFieldDistancer<RSS, OBBRSS>::distance;
+  distance_matrix[HF_OBBRSS][BV_kIOS] =
+      &HeightFieldShapeDistancer<OBBRSS, BVHModel<kIOS> >::distance;
+  distance_matrix[BV_kIOS][HF_OBBRSS] =
+      &BVHHeightFieldDistancer<kIOS, OBBRSS>::distance;
+  distance_matrix[HF_OBBRSS][BV_OBBRSS] =
+      &HeightFieldShapeDistancer<OBBRSS, BVHModel<OBBRSS> >::distance;
+  distance_matrix[BV_OBBRSS][HF_OBBRSS] =
+      &BVHHeightFieldDistancer<OBBRSS, OBBRSS>::distance;
 
   distance_matrix[BV_AABB][BV_AABB] = &BVHDistance<AABB>;
   distance_matrix[BV_OBB][BV_OBB] = &BVHDistance<OBB>;

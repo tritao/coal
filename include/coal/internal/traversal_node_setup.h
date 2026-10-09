@@ -430,6 +430,32 @@ bool initialize(HeightFieldShapeCollisionTraversalNode<BV, S, 0>& node,
   return true;
 }
 
+/// @brief Initialize traversal node for distance between a height field and
+/// a shape (or a mesh)
+template <typename BV, typename S>
+bool initialize(HeightFieldShapeDistanceTraversalNode<BV, S, 0>& node,
+                const HeightField<BV>& model1, const Transform3s& tf1,
+                const S& model2, const Transform3s& tf2,
+                const GJKSolver* nsolver, const DistanceRequest& request,
+                DistanceResult& result) {
+  node.request = request;
+  node.result = &result;
+
+  node.model1 = &model1;
+  node.tf1 = tf1;
+  node.model2 = &model2;
+  node.tf2 = tf2;
+  node.nsolver = nsolver;
+
+  node.model2_bounds =
+      details::boundsInHeightField(model2, tf1.inverseTimes(tf2));
+
+  node.rel_err = request.rel_err;
+  node.abs_err = request.abs_err;
+
+  return true;
+}
+
 /// @cond IGNORE
 namespace details {
 template <typename S, typename BV, template <typename> class OrientedNode>

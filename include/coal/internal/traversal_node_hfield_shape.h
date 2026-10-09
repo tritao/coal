@@ -48,6 +48,8 @@
 #include "coal/internal/traversal.h"
 #include "coal/internal/intersect.h"
 #include "coal/hfield.h"
+#include "coal/BVH/BVH_model.h"
+#include "coal/distance.h"
 #include "coal/shape/convex.h"
 
 namespace coal {
@@ -657,7 +659,79 @@ class HeightFieldShapeCollisionTraversalNode
 /// @addtogroup Traversal_For_Distance
 /// @{
 
-/// @brief Traversal node for distance between height field and shape
+/// @cond IGNORE
+namespace details {
+/// @brief Distance between one prism of a height-field cell and a shape: the
+/// shapes' own distance (signed when the request asks for it).
+template <typename S>
+struct HeightFieldLeafDistance {
+  static CoalScalar compute(const Convex<Triangle>& prism,
+                            const Transform3s& tf1, const S& shape,
+                            const Transform3s& tf2, const GJKSolver* nsolver,
+                            const DistanceRequest& request, Vec3s& p1,
+                            Vec3s& p2, Vec3s& normal) {
+    return internal::ShapeShapeDistance<Convex<Triangle>, S>(
+        &prism, tf1, &shape, tf2, nsolver, request.enable_signed_distance, p1,
+        p2, normal);
+  }
+};
+
+/// @brief Distance between one prism of a height-field cell and a mesh,
+/// through coal's convex-against-mesh distance.
+template <typename BV>
+struct HeightFieldLeafDistance<BVHModel<BV> > {
+  static CoalScalar compute(const Convex<Triangle>& prism,
+                            const Transform3s& tf1, const BVHModel<BV>& mesh,
+                            const Transform3s& tf2, const GJKSolver* /*nsolver*/,
+                            const DistanceRequest& request, Vec3s& p1,
+                            Vec3s& p2, Vec3s& normal) {
+    DistanceResult result;
+    const CoalScalar distance =
+        ::coal::distance(&prism, tf1, &mesh, tf2, request, result);
+    p1 = result.nearest_points[0];
+    p2 = result.nearest_points[1];
+    normal = result.normal;
+    return distance;
+  }
+};
+
+/// @brief The bounds of a shape (or a mesh) in the height field's frame.
+template <typename S>
+inline AABB boundsInHeightField(const S& shape, const Transform3s& tf) {
+  AABB bounds;
+  computeBV(shape, tf, bounds);
+  return bounds;
+}
+
+template <typename BV>
+inline AABB boundsInHeightField(const BVHModel<BV>& mesh,
+                                const Transform3s& tf) {
+  const AABB& local = mesh.aabb_local;
+  AABB bounds;
+  for (int corner = 0; corner < 8; ++corner) {
+    const Vec3s point(corner & 1 ? local.max_[0] : local.min_[0],
+                      corner & 2 ? local.max_[1] : local.min_[1],
+                      corner & 4 ? local.max_[2] : local.min_[2]);
+    const Vec3s placed = tf.transform(point);
+    if (corner == 0)
+      bounds = AABB(placed);
+    else
+      bounds += placed;
+  }
+  return bounds;
+}
+}  // namespace details
+/// @endcond
+
+/// @brief Traversal node for distance between height field and shape (or a
+/// mesh).
+///
+/// Each cell is compared as the two prisms coal splits it into for collision
+/// (details::buildConvexTriangles), so a penetration depth is measured within
+/// one cell. Subtrees are pruned with the distance between the cells' bounds
+/// and the shape's, both in the height field's frame; when signed distances
+/// are requested, overlapping bounds give no lower bound, so every cell they
+/// cover is compared.
 template <typename BV, typename S,
           int _Options = RelativeTransformationIsIdentity>
 class HeightFieldShapeDistanceTraversalNode : public DistanceTraversalNodeBase {
@@ -688,41 +762,58 @@ class HeightFieldShapeDistanceTraversalNode : public DistanceTraversalNodeBase {
 
   /// @brief Obtain the left child of BV node in the first BVH
   int getFirstLeftChild(unsigned int b) const {
-    return model1->getBV(b).leftChild();
+    return static_cast<int>(model1->getBV(b).leftChild());
   }
 
   /// @brief Obtain the right child of BV node in the first BVH
   int getFirstRightChild(unsigned int b) const {
-    return model1->getBV(b).rightChild();
+    return static_cast<int>(model1->getBV(b).rightChild());
   }
 
-  /// @brief BV culling test in one BVTT node
+  /// @brief A lower bound on the distance between the cells under node b1
+  /// and the shape.
   CoalScalar BVDistanceLowerBound(unsigned int b1, unsigned int /*b2*/) const {
-    return model1->getBV(b1).bv.distance(
-        model2_bv);  // TODO(jcarpent): tf1 is not taken into account here.
+    const HFNode<BV>& node = model1->getBV(b1);
+    const VecXs& x_grid = model1->getXGrid();
+    const VecXs& y_grid = model1->getYGrid();
+    // Rows run along -y.
+    const AABB cells(
+        Vec3s(x_grid[node.x_id], y_grid[node.y_id + node.y_size],
+              model1->getMinHeight()),
+        Vec3s(x_grid[node.x_id + node.x_size], y_grid[node.y_id],
+              node.max_height));
+    const CoalScalar distance = cells.distance(model2_bounds);
+    if (distance > 0) return distance;
+    return this->request.enable_signed_distance
+               ? -std::numeric_limits<CoalScalar>::infinity()
+               : 0;
   }
 
-  /// @brief Distance testing between leaves (one bin of the height field and
-  /// one shape)
-  /// TODO(louis): deal with Hfield-Shape distance just like in Hfield-Shape
-  /// collision (bin correction etc).
+  /// @brief Distance between one cell of the height field (its two prisms)
+  /// and the shape.
   void leafComputeDistance(unsigned int b1, unsigned int /*b2*/) const {
     if (this->enable_statistics) this->num_leaf_tests++;
 
-    const BVNode<BV>& node = this->model1->getBV(b1);
+    const HFNode<BV>& node = this->model1->getBV(b1);
 
-    typedef Convex<Quadrilateral> ConvexQuadrilateral;
-    const ConvexQuadrilateral convex =
-        details::buildConvexQuadrilateral(node, *this->model1);
+    typedef Convex<Triangle> ConvexTriangle;
+    ConvexTriangle convex1, convex2;
+    int convex1_active_faces, convex2_active_faces;
+    details::buildConvexTriangles(node, *this->model1, convex1,
+                                  convex1_active_faces, convex2,
+                                  convex2_active_faces);
+    convex1.computeLocalAABB();
+    convex2.computeLocalAABB();
 
-    Vec3s p1, p2, normal;
-    const CoalScalar distance =
-        internal::ShapeShapeDistance<ConvexQuadrilateral, S>(
-            &convex, this->tf1, this->model2, this->tf2, this->nsolver,
-            this->request.enable_signed_distance, p1, p2, normal);
-
-    this->result->update(distance, this->model1, this->model2, b1,
-                         DistanceResult::NONE, p1, p2, normal);
+    for (const ConvexTriangle* convex : {&convex1, &convex2}) {
+      Vec3s p1, p2, normal;
+      const CoalScalar distance =
+          details::HeightFieldLeafDistance<S>::compute(
+              *convex, this->tf1, *this->model2, this->tf2, this->nsolver,
+              this->request, p1, p2, normal);
+      this->result->update(distance, this->model1, this->model2, b1,
+                           DistanceResult::NONE, p1, p2, normal);
+    }
   }
 
   /// @brief Whether the traversal process can stop early
@@ -740,7 +831,8 @@ class HeightFieldShapeDistanceTraversalNode : public DistanceTraversalNodeBase {
 
   const HeightField<BV>* model1;
   const S* model2;
-  BV model2_bv;
+  /// @brief The shape's bounds in the height field's frame.
+  AABB model2_bounds;
 
   mutable int num_bv_tests;
   mutable int num_leaf_tests;
