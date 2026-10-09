@@ -135,7 +135,8 @@ MinkowskiDiff::GetSupportFunction makeGetSupportFunction1(
     case GEOM_CONVEX: {
       const ConvexBase* convex1 = static_cast<const ConvexBase*>(s1);
       if (static_cast<size_t>(convex1->num_points) >
-          ConvexBase::num_vertices_large_convex_threshold) {
+              ConvexBase::num_vertices_large_convex_threshold &&
+          convex1->neighbors != nullptr) {
         data[1].visited.assign(convex1->num_points, false);
         data[1].last_dir.setZero();
         if (identity)
@@ -209,7 +210,8 @@ MinkowskiDiff::GetSupportFunction makeGetSupportFunction0(
     case GEOM_CONVEX: {
       const ConvexBase* convex0 = static_cast<const ConvexBase*>(s0);
       if (static_cast<size_t>(convex0->num_points) >
-          ConvexBase::num_vertices_large_convex_threshold) {
+              ConvexBase::num_vertices_large_convex_threshold &&
+          convex0->neighbors != nullptr) {
         data[0].visited.assign(convex0->num_points, false);
         data[0].last_dir.setZero();
         return makeGetSupportFunction1<LargeConvex, _SupportOptions>(

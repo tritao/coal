@@ -87,7 +87,8 @@ ContactPatchSolver::makeSupportSetFunction(const ShapeBase* shape,
         support_data.polygon.reserve(default_num_preallocated_supports);
       }
       if ((size_t)(convex->num_points) >
-          ConvexBase::num_vertices_large_convex_threshold) {
+              ConvexBase::num_vertices_large_convex_threshold &&
+          convex->neighbors != nullptr) {
         support_data.visited.assign(convex->num_points, false);
         support_data.last_dir.setZero();
         return details::getShapeSupportSetTpl<details::LargeConvex,
